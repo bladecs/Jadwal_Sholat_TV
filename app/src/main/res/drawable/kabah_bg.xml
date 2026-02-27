@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="100dp"
+    android:height="100dp"
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+
+    <!-- Placeholder untuk gambar Kabah -->
+    <path
+        android:fillColor="#8B4513"
+        android:pathData="M50,10 L70,30 L70,70 L50,90 L30,70 L30,30 Z"/>
+    <path
+        android:fillColor="#FFD700"
+        android:pathData="M50,30 L60,40 L60,60 L50,70 L40,60 L40,40 Z"/>
+</vector>

@@ -1,0 +1,4 @@
+<resources>
+
+    <style name="Theme.JadwalSholatTV" parent="Theme.AppCompat.DayNight.NoActionBar" />
+</resources>
