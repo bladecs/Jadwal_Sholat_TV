@@ -14,11 +14,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -165,14 +162,10 @@ fun GlassCard(
     subtitle: String,
     alignEnd: Boolean = false
 ) {
-    Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-        border = CardDefaults.outlinedCardBorder().copy(
-            brush = outline2Brush,
-            width = 2.dp
-        )
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(18.dp))
+            .border(2.dp, outline2Brush, RoundedCornerShape(18.dp))
     ) {
         Box(
             modifier = Modifier
@@ -205,11 +198,10 @@ fun GlassCard(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun MainPrayerCard(modifier: Modifier, nextPrayer: String, remaining: String, nextTime: String) {
-    Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-        border = CardDefaults.outlinedCardBorder().copy(brush = outline2Brush, width = 2.dp)
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(20.dp))
+            .border(2.dp, outline2Brush, RoundedCornerShape(20.dp))
     ) {
         Box(modifier = Modifier.fillMaxSize().background(mainCardBrush).padding(24.dp)) {
             Column(
@@ -255,11 +247,10 @@ fun MainPrayerCard(modifier: Modifier, nextPrayer: String, remaining: String, ne
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun PrayerCard(sholat: SholatTime, modifier: Modifier = Modifier) {
-    Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-        border = CardDefaults.outlinedCardBorder().copy(brush = outlineBrush, width = 2.dp)
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .border(2.dp, outlineBrush, RoundedCornerShape(16.dp))
     ) {
         Box(
             modifier = Modifier
