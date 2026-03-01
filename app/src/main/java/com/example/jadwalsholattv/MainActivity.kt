@@ -19,23 +19,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.tv.material3.Text
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -194,7 +191,7 @@ private fun RightPanel(modifier: Modifier = Modifier) {
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.weight(1f)) {
                 PrayerTile("Ashar", "15 : 30", false, Modifier.weight(1f))
                 PrayerTile("Maghrib", "18 : 17", true, Modifier.weight(1f))
-                PrayerTile("Isya", "19 : 20", null, Modifier.weight(1f), isEmpty = true)
+                PrayerTile("Isya", "19 : 20", false, Modifier.weight(1f))
             }
         }
     }
@@ -239,11 +236,11 @@ private fun PrayerTile(
     ) {
         if (!isEmpty) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxSize()) {
-                Spacer(modifier = Modifier.height(18.dp))
-                WeatherIcon(Modifier.size(94.dp), cloudy)
+                Spacer(modifier = Modifier.height(8.dp))
+                WeatherIcon(Modifier.size(74.dp), cloudy)
                 Spacer(modifier = Modifier.weight(1f))
-                Text(title, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Medium)
-                Text(time, color = Color.White, fontSize = 24.sp, modifier = Modifier.padding(bottom = 8.dp))
+                Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Medium)
+                Text(time, color = Color.White, fontSize = 20.sp, modifier = Modifier.padding(bottom = 8.dp))
             }
         }
     }
