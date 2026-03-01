@@ -14,7 +14,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.GenericShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -22,7 +23,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Devices
 import androidx.compose.ui.tooling.preview.Preview
@@ -32,9 +32,6 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.example.jadwalsholattv.ui.theme.JadwalSholatTVTheme
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalTvMaterial3Api::class)
@@ -42,283 +39,218 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             JadwalSholatTVTheme {
-                JadwalSholatScreen()
+                PrayerDashboardScreen()
             }
         }
     }
 }
 
-data class SholatTime(
-    val name: String,
-    val time: String,
-    val isCurrent: Boolean = false,
-    val passed: Boolean = false
+private val outerFrameBrush = Brush.horizontalGradient(
+    listOf(Color(0xFF0F1115), Color(0xFF173C3A), Color(0xFF0F1115))
 )
 
-private val outlineBrush = Brush.horizontalGradient(listOf(Color(0xFFD4AF37), Color(0xFF675724)))
-private val outline2Brush = Brush.horizontalGradient(listOf(Color(0xFFD4AF37), Color(0xFF726F1B)))
-private val sixCardBrush = Brush.verticalGradient(listOf(Color(0xFF00FFE1), Color(0xFF006FFF)))
-private val mainCardBrush = Brush.linearGradient(
-    listOf(Color(0xFF005E73), Color(0xFFA6A600), Color(0xFF00D948))
+private val panelBrush = Brush.verticalGradient(
+    listOf(Color(0xFF4A5658), Color(0xFF3E4A4D))
+)
+
+private val tileBrush = Brush.verticalGradient(
+    listOf(Color(0xFF6F7C7D), Color(0xFF677476))
 )
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-fun JadwalSholatScreen() {
-    val sholatTimes = listOf(
-        SholatTime("Subuh", "04:30", passed = true),
-        SholatTime("Syuruq", "05:47", passed = true),
-        SholatTime("Dzuhur", "12:15", passed = true),
-        SholatTime("Ashar", "15:45", isCurrent = true),
-        SholatTime("Maghrib", "18:15"),
-        SholatTime("Isya", "19:30")
-    )
-
-    val currentDate = SimpleDateFormat("EEEE, dd MMMM yyyy", Locale("id", "ID")).format(Date())
-    val currentTime = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
-
+fun PrayerDashboardScreen() {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF001B26))
-            .padding(12.dp)
-            .border(2.dp, outlineBrush, RoundedCornerShape(28.dp))
-            .padding(16.dp)
+            .background(Color(0xFF121417))
+            .padding(26.dp)
             .clip(RoundedCornerShape(24.dp))
-            .background(Color(0x6600AFAF))
-            .border(2.dp, outline2Brush, RoundedCornerShape(24.dp))
-            .padding(16.dp)
+            .background(outerFrameBrush)
+            .border(1.dp, Color(0xFF365857), RoundedCornerShape(24.dp))
+            .padding(32.dp)
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                GlassCard(
-                    modifier = Modifier.weight(3f).height(110.dp),
-                    backgroundBrush = Brush.verticalGradient(listOf(Color(0xB000AFAF), Color(0x6600AFAF))),
-                    title = "JADWAL SHOLAT",
-                    subtitle = currentDate
-                )
-                GlassCard(
-                    modifier = Modifier.weight(2f).height(110.dp),
-                    backgroundBrush = Brush.verticalGradient(listOf(Color(0xB000AFAF), Color(0x6600AFAF))),
-                    title = "JAKARTA",
-                    subtitle = currentTime,
-                    alignEnd = true
-                )
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Row(
-                modifier = Modifier.weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                MainPrayerCard(
-                    modifier = Modifier.weight(3f).fillMaxSize(),
-                    nextPrayer = "MAGHRIB",
-                    remaining = "01:45:30",
-                    nextTime = "18:15 WIB"
-                )
-
-                Column(
-                    modifier = Modifier.weight(2f).fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    for (row in 0 until 2) {
-                        Row(
-                            modifier = Modifier.weight(1f).fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            for (col in 0 until 3) {
-                                val item = sholatTimes[row * 3 + col]
-                                PrayerCard(sholat = item, modifier = Modifier.weight(1f).fillMaxSize())
-                            }
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            BottomInfoCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(82.dp),
-                leftText = "© Jadwal Sholat TV 2024",
-                rightText = "Sumber: Kemenag RI"
-            )
+        Row(
+            modifier = Modifier.fillMaxSize(),
+            horizontalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
+            LeftPanel(modifier = Modifier.weight(1.05f))
+            RightPanel(modifier = Modifier.weight(1.25f))
         }
     }
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-fun GlassCard(
-    modifier: Modifier,
-    backgroundBrush: Brush,
-    title: String,
-    subtitle: String,
-    alignEnd: Boolean = false
-) {
+private fun LeftPanel(modifier: Modifier = Modifier) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(106.dp)
+                .clip(RoundedCornerShape(18.dp))
+                .background(panelBrush)
+                .border(1.dp, Color(0xFF8B9B9B), RoundedCornerShape(18.dp))
+                .padding(horizontal = 24.dp),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "🔔",
+                    fontSize = 28.sp,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Color(0x558E999A))
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "Informasi running text yang memiliki tingkat kepanjangan yang berbeda beda",
+                    style = MaterialTheme.typography.bodyLarge.copy(color = Color(0xFFEAF1F1), fontSize = 20.sp)
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .clip(RoundedCornerShape(20.dp))
+                .background(panelBrush)
+                .border(1.dp, Color(0xFF9EAEAE), RoundedCornerShape(20.dp))
+                .padding(26.dp)
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(text = "☁️", fontSize = 86.sp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(text = "25", fontSize = 68.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                            Text(text = "Party Cloud", fontSize = 40.sp, color = Color(0xFFF2F5F5), fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(text = "Monday", fontSize = 56.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                        Text(text = "29 Agustus 2026", fontSize = 32.sp, color = Color(0xFFD2DBDB))
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(horizontalArrangement = Arrangement.spacedBy(32.dp)) {
+                    MiniInfo(label = "Humidity", value = "80%")
+                    MiniInfo(label = "Wind Speed", value = "13 Km/h")
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFA5B4B4)))
+                Spacer(modifier = Modifier.height(18.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text(text = "12:00", fontSize = 98.sp, color = Color(0xFFE7EFEF), fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(text = "PM", fontSize = 54.sp, color = Color(0xFFCCD6D6), fontWeight = FontWeight.Medium)
+                    }
+
+                    Text(
+                        text = "🕋",
+                        fontSize = 54.sp,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Color(0x5594A5A5))
+                            .padding(horizontal = 20.dp, vertical = 12.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.weight(1f))
+                Text(
+                    text = "Jawa Barat, Bandung, Kab. Bandung",
+                    fontSize = 36.sp,
+                    color = Color(0xFFC6D0D0),
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun MiniInfo(label: String, value: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = "◌",
+            fontSize = 28.sp,
+            color = Color.White,
+            modifier = Modifier
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0x558D9A9A))
+                .padding(horizontal = 10.dp, vertical = 6.dp)
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Column {
+            Text(text = label, color = Color(0xFFDDE7E7), fontSize = 26.sp, fontWeight = FontWeight.Medium)
+            Text(text = value, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun RightPanel(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .clip(RoundedCornerShape(20.dp))
+            .background(panelBrush)
+            .border(1.dp, Color(0xFF9EAEAE), RoundedCornerShape(20.dp))
+            .padding(18.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                WeatherTile(Modifier.weight(1f).fillMaxSize(), "🌙☁️")
+                WeatherTile(Modifier.weight(1f).fillMaxSize(), "🌤️")
+                WeatherTile(Modifier.weight(1f).fillMaxSize(), "☀️")
+            }
+            Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                WeatherTile(Modifier.weight(1f).fillMaxSize(), "⛅")
+                WeatherTile(Modifier.weight(1f).fillMaxSize(), "🌙☁️")
+                WeatherTile(Modifier.weight(1f).fillMaxSize(), "")
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun WeatherTile(modifier: Modifier, icon: String) {
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(18.dp))
-            .border(2.dp, outline2Brush, RoundedCornerShape(18.dp))
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(backgroundBrush)
-                .padding(horizontal = 18.dp, vertical = 14.dp)
-        ) {
-            Column(horizontalAlignment = if (alignEnd) Alignment.End else Alignment.Start) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontSize = 30.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodyLarge.copy(
-                        color = Color(0xFFE8FFFE),
-                        fontSize = 20.sp
-                    )
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-fun MainPrayerCard(modifier: Modifier, nextPrayer: String, remaining: String, nextTime: String) {
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(20.dp))
-            .border(2.dp, outline2Brush, RoundedCornerShape(20.dp))
-    ) {
-        Box(modifier = Modifier.fillMaxSize().background(mainCardBrush).padding(24.dp)) {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = "SHOLAT BERIKUTNYA",
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        color = Color.White,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                )
-                Text(
-                    text = nextPrayer,
-                    style = MaterialTheme.typography.displayLarge.copy(
-                        fontSize = 62.sp,
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold
-                    )
-                )
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(
-                        text = remaining,
-                        style = MaterialTheme.typography.headlineLarge.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                    )
-                    Text(
-                        text = nextTime,
-                        style = MaterialTheme.typography.headlineSmall.copy(
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFFEFFFFD)
-                        )
-                    )
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-fun PrayerCard(sholat: SholatTime, modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .border(2.dp, outlineBrush, RoundedCornerShape(16.dp))
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(sixCardBrush)
-                .padding(vertical = 10.dp, horizontal = 8.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = sholat.name,
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                )
-                Text(
-                    text = sholat.time,
-                    style = MaterialTheme.typography.headlineSmall.copy(
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold
-                    )
-                )
-                if (sholat.isCurrent) {
-                    Text(
-                        text = "SEKARANG",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            color = Color(0xFFFFF5C2),
-                            fontWeight = FontWeight.Bold
-                        )
-                    )
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-fun BottomInfoCard(modifier: Modifier, leftText: String, rightText: String) {
-    val shape: Shape = GenericShape { size, _ ->
-        moveTo(size.width * 0.04f, 0f)
-        lineTo(size.width * 0.96f, 0f)
-        lineTo(size.width, size.height)
-        lineTo(0f, size.height)
-        close()
-    }
-
-    Box(
-        modifier = modifier
-            .clip(shape)
-            .background(Color(0x6600AFAF))
-            .border(2.dp, outlineBrush, shape)
-            .padding(horizontal = 24.dp),
+            .background(tileBrush)
+            .border(1.dp, Color(0xFFAFBEBE), RoundedCornerShape(18.dp)),
         contentAlignment = Alignment.Center
     ) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(text = leftText, color = Color.White, fontSize = 16.sp)
-            Text(text = rightText, color = Color.White, fontSize = 16.sp)
+        if (icon.isNotEmpty()) {
+            Text(text = icon, fontSize = 70.sp)
         }
     }
 }
 
 @Preview(showBackground = true, device = Devices.TV_1080p)
 @Composable
-fun JadwalSholatPreview() {
+fun PrayerDashboardPreview() {
     JadwalSholatTVTheme {
-        JadwalSholatScreen()
+        PrayerDashboardScreen()
     }
 }
