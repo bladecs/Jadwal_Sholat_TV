@@ -39,8 +39,50 @@ class FirebasePairingManager(private val context: Context) {
         val database = FirebaseDatabase.getInstance(app, BuildConfig.FIREBASE_DB_URL)
         val deviceId = getOrCreateDeviceId()
         cachedDeviceId = deviceId
-        val pairingCode = generatePairingCode()
         val now = System.currentTimeMillis()
+
+        val deviceSnapshot = database.reference
+            .child("devices")
+            .child(deviceId)
+            .get()
+            .await()
+
+        val meta = deviceSnapshot.child("meta")
+        val settings = deviceSnapshot.child("settings")
+        val isAlreadyPaired = meta.child("paired").getValue(Boolean::class.java) ?: false
+
+        if (isAlreadyPaired) {
+            database.reference.child("devices").child(deviceId).child("meta")
+                .child("lastSeenAt")
+                .setValue(ServerValue.TIMESTAMP)
+                .await()
+
+            return PairingUiState(
+                deviceId = deviceId,
+                pairingCode = meta.child("pairingCode").getValue(String::class.java),
+                paired = true,
+                settings = settings.toDeviceSettings()
+            )
+        }
+
+        val existingCode = meta.child("pairingCode").getValue(String::class.java)
+        val existingExpiresAt = meta.child("pairingCodeExpiresAt").getValue(Long::class.java) ?: 0L
+
+        if (!existingCode.isNullOrBlank() && existingExpiresAt > now) {
+            database.reference.child("devices").child(deviceId).child("meta")
+                .child("lastSeenAt")
+                .setValue(ServerValue.TIMESTAMP)
+                .await()
+
+            return PairingUiState(
+                deviceId = deviceId,
+                pairingCode = existingCode,
+                paired = false,
+                settings = settings.toDeviceSettings()
+            )
+        }
+
+        val pairingCode = generatePairingCode()
         val expiresAt = now + 5 * 60 * 1000
 
         val deviceMeta = hashMapOf<String, Any?>(
@@ -68,7 +110,9 @@ class FirebasePairingManager(private val context: Context) {
 
         return PairingUiState(
             deviceId = deviceId,
-            pairingCode = pairingCode
+            pairingCode = pairingCode,
+            paired = false,
+            settings = settings.toDeviceSettings()
         )
     }
 
@@ -90,16 +134,7 @@ class FirebasePairingManager(private val context: Context) {
                         deviceId = cachedDeviceId,
                         pairingCode = meta.child("pairingCode").getValue(String::class.java),
                         paired = meta.child("paired").getValue(Boolean::class.java) ?: false,
-                        settings = DeviceSettings(
-                            mosqueName = settings.child("mosqueName").getValue(String::class.java)
-                                ?: "Belum diatur",
-                            province = settings.child("province").getValue(String::class.java)
-                                ?: "Belum diatur",
-                            city = settings.child("city").getValue(String::class.java)
-                                ?: "Belum diatur",
-                            timezone = settings.child("timezone").getValue(String::class.java)
-                                ?: "Asia/Jakarta"
-                        )
+                        settings = settings.toDeviceSettings()
                     )
                 )
             }
@@ -153,5 +188,14 @@ class FirebasePairingManager(private val context: Context) {
 
     private fun generatePairingCode(): String {
         return Random.nextInt(100_000, 1_000_000).toString()
+    }
+
+    private fun DataSnapshot.toDeviceSettings(): DeviceSettings {
+        return DeviceSettings(
+            mosqueName = child("mosqueName").getValue(String::class.java) ?: "Belum diatur",
+            province = child("province").getValue(String::class.java) ?: "Belum diatur",
+            city = child("city").getValue(String::class.java) ?: "Belum diatur",
+            timezone = child("timezone").getValue(String::class.java) ?: "Asia/Jakarta"
+        )
     }
 }
