@@ -70,12 +70,41 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
 import com.example.jadwalsholattv.data.FirebasePairingManager
 import com.example.jadwalsholattv.data.PairingUiState
+import com.example.jadwalsholattv.data.DailyPrayerSchedule
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.io.path.Path
 import kotlin.math.roundToInt
+import java.time.Duration
+import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
+import java.util.Locale
 
 val gradientColors = listOf(Color(0xFF01A671), Color(0xFF00A78A),Color(0xFF005066))
+
+private enum class CountdownPhase {
+    BEFORE_PRAYER,
+    ADZAN_HOLD,
+    IQOMAH
+}
+
+private data class PrayerTime(
+    val name: String,
+    val time: LocalDateTime,
+    val displayTime: String
+)
+
+private data class CountdownState(
+    val nextPrayer: PrayerTime?,
+    val phase: CountdownPhase,
+    val remainingSeconds: Long,
+    val label: String
+)
 
 class MainActivity : ComponentActivity(){
     private lateinit var pairingManager: FirebasePairingManager
@@ -113,7 +142,7 @@ class MainActivity : ComponentActivity(){
 
 @Composable
 fun JadwalSholatTV(pairingUiState: PairingUiState) {
-    var countdownSeconds by remember { mutableStateOf(12 * 60) } // 12:00
+    var nowMillis by remember { mutableStateOf(System.currentTimeMillis()) }
     val pairingStatusText = when {
         pairingUiState.paired -> "Terhubung"
         pairingUiState.pairingCode.isNullOrBlank() -> "Belum Pairing"
@@ -125,16 +154,47 @@ fun JadwalSholatTV(pairingUiState: PairingUiState) {
         pairingUiState.deviceId
     }
 
-    LaunchedEffect(countdownSeconds) {
-        if (countdownSeconds > 0) {
+    LaunchedEffect(Unit) {
+        while (true) {
             delay(1_000)
-            countdownSeconds--
+            nowMillis = System.currentTimeMillis()
         }
     }
 
-    val minutes = countdownSeconds / 60
-    val seconds = countdownSeconds % 60
+    val zoneId = runCatching { ZoneId.of(pairingUiState.settings.timezone) }
+        .getOrElse { ZoneId.systemDefault() }
+    val now = Instant.ofEpochMilli(nowMillis).atZone(zoneId).toLocalDateTime()
+    val dayName = now.dayOfWeek.getDisplayName(TextStyle.FULL, Locale("id", "ID"))
+    val dateText = now.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
+
+    val countdownState = remember(
+        nowMillis,
+        pairingUiState.todaySchedule,
+        pairingUiState.tomorrowSchedule
+    ) {
+        computeCountdownState(
+            now = now,
+            todaySchedule = pairingUiState.todaySchedule,
+            tomorrowSchedule = pairingUiState.tomorrowSchedule
+        )
+    }
+
+    val nextPrayerName = countdownState.nextPrayer?.name ?: "-"
+    val nextPrayerTime = countdownState.nextPrayer?.displayTime ?: "--:--"
+    val countdownLabel = countdownState.label
+
+    val remainingSeconds = countdownState.remainingSeconds.coerceAtLeast(0L)
+    val minutes = (remainingSeconds / 60).toInt().coerceAtLeast(0)
+    val seconds = (remainingSeconds % 60).toInt().coerceAtLeast(0)
     val countdownDigits = String.format("%02d%02d", minutes, seconds)
+
+    val todayPrayerList = listOf(
+        "Subuh" to (pairingUiState.todaySchedule?.fajr ?: "--:--"),
+        "Dzuhur" to (pairingUiState.todaySchedule?.dzuhur ?: "--:--"),
+        "Ashar" to (pairingUiState.todaySchedule?.ashar ?: "--:--"),
+        "Maghrib" to (pairingUiState.todaySchedule?.maghrib ?: "--:--"),
+        "Isya" to (pairingUiState.todaySchedule?.isya ?: "--:--")
+    )
 
     // Gunakan Box untuk menumpuk elemen (Z-axis)
     Box(modifier = Modifier.fillMaxSize()) {
@@ -185,7 +245,7 @@ fun JadwalSholatTV(pairingUiState: PairingUiState) {
                                     horizontalAlignment = Alignment.Start
                                 ){
                                     Text(
-                                        text = "Nama Masjid",
+                                        text = "Nama Device",
                                         textAlign = TextAlign.Left,
                                         fontWeight = FontWeight.Bold,
                                         color = Color.Gray,
@@ -300,7 +360,7 @@ fun JadwalSholatTV(pairingUiState: PairingUiState) {
                                         style = LocalTextStyle.current.copy(fontSize = 12.sp)
                                     )
                                     Text(
-                                        text = "Senin",
+                                        text = dayName,
                                         textAlign = TextAlign.Left,
                                         fontWeight = FontWeight.Bold,
                                         color = Color.Black,
@@ -332,7 +392,7 @@ fun JadwalSholatTV(pairingUiState: PairingUiState) {
                                         style = LocalTextStyle.current.copy(fontSize = 12.sp)
                                     )
                                     Text(
-                                        text = "06/03/2026",
+                                        text = dateText,
                                         textAlign = TextAlign.Right,
                                         fontWeight = FontWeight.Bold,
                                         color = Color.Black,
@@ -358,7 +418,7 @@ fun JadwalSholatTV(pairingUiState: PairingUiState) {
                                         modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
                                     ){
                                         Text(
-                                            text = "DZUHUR",
+                                            text = nextPrayerName.uppercase(),
                                             textAlign = TextAlign.Left,
                                             fontWeight = FontWeight.Bold,
                                             color = Color.White,
@@ -391,7 +451,7 @@ fun JadwalSholatTV(pairingUiState: PairingUiState) {
                                             style = LocalTextStyle.current.copy(fontSize = 15.sp)
                                         )
                                         Text(
-                                            text = "11:50",
+                                            text = nextPrayerTime,
                                             textAlign = TextAlign.Left,
                                             fontWeight = FontWeight.Bold,
                                             color = Color.White,
@@ -439,39 +499,6 @@ fun JadwalSholatTV(pairingUiState: PairingUiState) {
                 }
                 // Navbar
                 Column (modifier = Modifier.weight(1f),horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center){
-//                    Box(
-//                        modifier = Modifier
-//                            .fillMaxWidth()
-//                            .height(100.dp)
-//                            .clip(RoundedCornerShape(12.dp))
-//                            .background(
-//                                color = Color.White.copy(alpha = 0.7f)
-//                            ),
-//                        contentAlignment = Alignment.Center
-//                    ){
-//                        Column (
-//                            modifier = Modifier.padding(15.dp).fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally
-//                        ){
-//                            Text(
-//                                text = "ID TV: $shortDeviceId",
-//                                textAlign = TextAlign.Center,
-//                                fontWeight = FontWeight.SemiBold,
-//                                color = Color(0xFF005066),
-//                                style = LocalTextStyle.current.copy(fontSize = 20.sp),
-//                                modifier = Modifier.fillMaxWidth()
-//                            )
-//                            pairingUiState.errorMessage?.let { errorMessage ->
-//                                Text(
-//                                    text = errorMessage,
-//                                    textAlign = TextAlign.Left,
-//                                    color = Color(0xFFB71C1C),
-//                                    style = LocalTextStyle.current.copy(fontSize = 10.sp),
-//                                    maxLines = 2,
-//                                    modifier = Modifier.fillMaxWidth()
-//                                )
-//                            }
-//                        }
-//                    }
                     Spacer( modifier = Modifier.size(width = 380.dp,height = 360.dp) )
                     Box(
                         modifier = Modifier
@@ -535,160 +562,23 @@ fun JadwalSholatTV(pairingUiState: PairingUiState) {
                                 fontWeight = FontWeight.Bold,
                                 style = LocalTextStyle.current.copy(fontSize = 15.sp)
                             )
+                            val firstRow = todayPrayerList.take(3)
+                            val secondRow = todayPrayerList.drop(3)
+
                             Row (
                                 modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .shadow(
-                                            elevation = 5.dp,
-                                            shape = RoundedCornerShape(12.dp)
-                                        )
-                                        .width(65.dp)
-                                        .height(90.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(
-                                            color = Color(0xFF00A78A)
-                                        ),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Column (
-                                        modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center
-                                    ){
-                                        Text(
-                                            text = "12",
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.White,
-                                            style = LocalTextStyle.current.copy(fontSize = 25.sp)
-                                        )
-                                        Text(
-                                            text = "30",
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(0xFFFF9900),
-                                            style = LocalTextStyle.current.copy(fontSize = 25.sp)
-                                        )
-                                        Text(
-                                            text = "Subuh",
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.White,
-                                            style = LocalTextStyle.current.copy(fontSize = 15.sp)
-                                        )
-                                    }
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .shadow(
-                                            elevation = 5.dp,
-                                            shape = RoundedCornerShape(12.dp)
-                                        )
-                                        .width(65.dp)
-                                        .height(90.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(
-                                            color = Color(0xFF00A78A)
-                                        ),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Column (
-                                        modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center
-                                    ){
-                                        Text(
-                                            text = "12",
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.White,
-                                            style = LocalTextStyle.current.copy(fontSize = 25.sp)
-                                        )
-                                        Text(
-                                            text = "30",
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(0xFFFF9900),
-                                            style = LocalTextStyle.current.copy(fontSize = 25.sp)
-                                        )
-                                        Text(
-                                            text = "Subuh",
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.White,
-                                            style = LocalTextStyle.current.copy(fontSize = 15.sp)
-                                        )
-                                    }
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .shadow(
-                                            elevation = 5.dp,
-                                            shape = RoundedCornerShape(12.dp)
-                                        )
-                                        .width(65.dp)
-                                        .height(90.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(
-                                            color = Color(0xFF00A78A)
-                                        ),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Column (
-                                        modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center
-                                    ){
-                                        Text(
-                                            text = "12",
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.White,
-                                            style = LocalTextStyle.current.copy(fontSize = 25.sp)
-                                        )
-                                        Text(
-                                            text = "30",
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(0xFFFF9900),
-                                            style = LocalTextStyle.current.copy(fontSize = 25.sp)
-                                        )
-                                        Text(
-                                            text = "Subuh",
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.White,
-                                            style = LocalTextStyle.current.copy(fontSize = 15.sp)
-                                        )
-                                    }
+                                firstRow.forEach { (label, time) ->
+                                    PrayerTimeBox(time = time, label = label)
                                 }
                             }
                             Row (
                                 modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .shadow(
-                                            elevation = 5.dp,
-                                            shape = RoundedCornerShape(12.dp)
-                                        )
-                                        .width(65.dp)
-                                        .height(90.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(
-                                            color = Color(0xFF00A78A)
-                                        ),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Column (
-                                        modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center
-                                    ){
-                                        Text(
-                                            text = "12",
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.White,
-                                            style = LocalTextStyle.current.copy(fontSize = 25.sp)
-                                        )
-                                        Text(
-                                            text = "30",
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(0xFFFF9900),
-                                            style = LocalTextStyle.current.copy(fontSize = 25.sp)
-                                        )
-                                        Text(
-                                            text = "Subuh",
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.White,
-                                            style = LocalTextStyle.current.copy(fontSize = 15.sp)
-                                        )
-                                    }
+                                if (secondRow.isNotEmpty()) {
+                                    PrayerTimeBox(time = secondRow[0].second, label = secondRow[0].first)
+                                } else {
+                                    Box(modifier = Modifier.width(65.dp).height(90.dp))
                                 }
                                 Box(
                                     modifier = Modifier
@@ -696,42 +586,10 @@ fun JadwalSholatTV(pairingUiState: PairingUiState) {
                                         .height(90.dp)
                                         .clip(RoundedCornerShape(8.dp))
                                 )
-                                Box(
-                                    modifier = Modifier
-                                        .shadow(
-                                            elevation = 5.dp,
-                                            shape = RoundedCornerShape(12.dp)
-                                        )
-                                        .width(65.dp)
-                                        .height(90.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(
-                                            color = Color(0xFF00A78A)
-                                        ),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Column (
-                                        modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center
-                                    ){
-                                        Text(
-                                            text = "12",
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.White,
-                                            style = LocalTextStyle.current.copy(fontSize = 25.sp)
-                                        )
-                                        Text(
-                                            text = "30",
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(0xFFFF9900),
-                                            style = LocalTextStyle.current.copy(fontSize = 25.sp)
-                                        )
-                                        Text(
-                                            text = "Subuh",
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.White,
-                                            style = LocalTextStyle.current.copy(fontSize = 15.sp)
-                                        )
-                                    }
+                                if (secondRow.size > 1) {
+                                    PrayerTimeBox(time = secondRow[1].second, label = secondRow[1].first)
+                                } else {
+                                    Box(modifier = Modifier.width(65.dp).height(90.dp))
                                 }
                             }
                         }
@@ -770,7 +628,7 @@ fun JadwalSholatTV(pairingUiState: PairingUiState) {
                                     contentAlignment = Alignment.Center,
                                 ){
                                     Text(
-                                        text = "Iqomah",
+                                        text = countdownLabel,
                                         fontWeight = FontWeight.Bold,
                                         color = Color.White
                                     )
@@ -890,6 +748,12 @@ fun JadwalSholatTV(pairingUiState: PairingUiState) {
                 }
             }
             Spacer(modifier = Modifier.height(15.dp))
+            val runningTextValue = pairingUiState.settings.runningText.trim().ifEmpty {
+                "Info: Sholat berjamaah dimulai 10 menit setelah adzan. Mohon merapatkan shaf dan menonaktifkan nada dering."
+            }
+            val runningTextSpeed = pairingUiState.settings.runningTextSpeed
+            val runningTextBrightness = pairingUiState.settings.runningTextBrightness
+
             Card (
                 colors = CardDefaults.cardColors(
                     containerColor = Color.White.copy(alpha = 0.7f)
@@ -898,11 +762,13 @@ fun JadwalSholatTV(pairingUiState: PairingUiState) {
                 shape = CircleShape
             ){
                 RunningTickerText(
-                    text = "Info: Sholat berjamaah dimulai 10 menit setelah adzan. Mohon merapatkan shaf dan menonaktifkan nada dering.",
+                    text = runningTextValue,
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(horizontal = 24.dp),
-                    textColor = Color.Black
+                    textColor = Color.Black,
+                    speed = runningTextSpeed,
+                    brightness = runningTextBrightness
                 )
             }
         }
@@ -914,17 +780,23 @@ fun JadwalSholatTV(pairingUiState: PairingUiState) {
 fun RunningTickerText(
     text: String,
     modifier: Modifier = Modifier,
-    textColor: Color = Color.Black
+    textColor: Color = Color.Black,
+    speed: Float = 5f,
+    brightness: Float = 80f
 ) {
     var containerWidthPx by remember { mutableFloatStateOf(0f) }
     var textWidthPx by remember { mutableFloatStateOf(0f) }
+
+    val safeSpeed = speed.coerceIn(1f, 10f)
+    val durationMillis = (12000f * (5f / safeSpeed)).roundToInt().coerceIn(4000, 30000)
+    val brightnessAlpha = (brightness / 100f).coerceIn(0.2f, 1f)
 
     val transition = rememberInfiniteTransition(label = "tickerTransition")
     val progress by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 12000, easing = LinearEasing),
+            animation = tween(durationMillis = durationMillis, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "tickerProgress"
@@ -946,7 +818,7 @@ fun RunningTickerText(
     ) {
         Text(
             text = text,
-            color = textColor,
+            color = textColor.copy(alpha = alpha * brightnessAlpha),
             fontWeight = FontWeight.Bold,
             maxLines = 1,
             style = LocalTextStyle.current.copy(fontSize = 22.sp),
@@ -956,4 +828,130 @@ fun RunningTickerText(
                 .graphicsLayer { this.alpha = alpha }
         )
     }
+}
+
+@Composable
+private fun PrayerTimeBox(time: String, label: String) {
+    val (hour, minute) = splitTime(time)
+    Box(
+        modifier = Modifier
+            .shadow(
+                elevation = 5.dp,
+                shape = RoundedCornerShape(12.dp)
+            )
+            .width(65.dp)
+            .height(90.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(
+                color = Color(0xFF00A78A)
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column (
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ){
+            Text(
+                text = hour,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                style = LocalTextStyle.current.copy(fontSize = 25.sp)
+            )
+            Text(
+                text = minute,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFFFF9900),
+                style = LocalTextStyle.current.copy(fontSize = 25.sp)
+            )
+            Text(
+                text = label,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                style = LocalTextStyle.current.copy(fontSize = 15.sp)
+            )
+        }
+    }
+}
+
+private fun computeCountdownState(
+    now: LocalDateTime,
+    todaySchedule: DailyPrayerSchedule?,
+    tomorrowSchedule: DailyPrayerSchedule?
+): CountdownState {
+    val todayDate = now.toLocalDate()
+    val prayers = buildPrayerList(todaySchedule, todayDate) +
+        buildPrayerList(tomorrowSchedule, todayDate.plusDays(1))
+
+    val nextPrayer = prayers.firstOrNull { now.isBefore(it.time.plusMinutes(5)) }
+    if (nextPrayer == null) {
+        return CountdownState(
+            nextPrayer = null,
+            phase = CountdownPhase.BEFORE_PRAYER,
+            remainingSeconds = 0,
+            label = "Iqomah"
+        )
+    }
+
+    val prayerTime = nextPrayer.time
+    return when {
+        now.isBefore(prayerTime) -> CountdownState(
+            nextPrayer = nextPrayer,
+            phase = CountdownPhase.BEFORE_PRAYER,
+            remainingSeconds = Duration.between(now, prayerTime).seconds,
+            label = nextPrayer.name
+        )
+        now.isBefore(prayerTime.plusMinutes(2)) -> CountdownState(
+            nextPrayer = nextPrayer,
+            phase = CountdownPhase.ADZAN_HOLD,
+            remainingSeconds = 0,
+            label = nextPrayer.name
+        )
+        now.isBefore(prayerTime.plusMinutes(5)) -> CountdownState(
+            nextPrayer = nextPrayer,
+            phase = CountdownPhase.IQOMAH,
+            remainingSeconds = Duration.between(now, prayerTime.plusMinutes(5)).seconds,
+            label = "Iqomah"
+        )
+        else -> CountdownState(
+            nextPrayer = nextPrayer,
+            phase = CountdownPhase.BEFORE_PRAYER,
+            remainingSeconds = 0,
+            label = nextPrayer.name
+        )
+    }
+}
+
+private fun buildPrayerList(
+    schedule: DailyPrayerSchedule?,
+    date: LocalDate
+): List<PrayerTime> {
+    if (schedule == null) return emptyList()
+    val items = listOf(
+        "Subuh" to schedule.fajr,
+        "Dzuhur" to schedule.dzuhur,
+        "Ashar" to schedule.ashar,
+        "Maghrib" to schedule.maghrib,
+        "Isya" to schedule.isya
+    )
+    return items.mapNotNull { (name, timeText) ->
+        val parsed = parsePrayerTime(date, timeText)
+        parsed?.let { PrayerTime(name = name, time = it, displayTime = timeText) }
+    }.sortedBy { it.time }
+}
+
+private fun parsePrayerTime(date: LocalDate, timeText: String): LocalDateTime? {
+    val parts = timeText.trim().split(":")
+    if (parts.size < 2) return null
+    val hour = parts[0].toIntOrNull() ?: return null
+    val minute = parts[1].toIntOrNull() ?: return null
+    return runCatching { LocalDateTime.of(date, LocalTime.of(hour, minute)) }.getOrNull()
+}
+
+private fun splitTime(timeText: String): Pair<String, String> {
+    val parts = timeText.trim().split(":")
+    if (parts.size < 2) return "--" to "--"
+    val hour = parts[0].padStart(2, '0')
+    val minute = parts[1].padStart(2, '0')
+    return hour to minute
 }

@@ -9,7 +9,13 @@ import com.google.firebase.database.DatabaseReference
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ServerValue
 import com.google.firebase.database.ValueEventListener
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
+import java.time.LocalDate
+import java.time.ZoneId
 import java.util.UUID
 import kotlin.random.Random
 
@@ -17,7 +23,12 @@ data class DeviceSettings(
     val mosqueName: String = "Belum diatur",
     val province: String = "Belum diatur",
     val city: String = "Belum diatur",
-    val timezone: String = "Asia/Jakarta"
+    val timezone: String = "Asia/Jakarta",
+    val videoUrl: String = "",
+    val runningText: String = "",
+    val runningTextSpeed: Float = 5f,
+    val runningTextBrightness: Float = 80f,
+    val educationVideos: List<EducationVideo> = emptyList()
 )
 
 data class PairingUiState(
@@ -25,7 +36,25 @@ data class PairingUiState(
     val pairingCode: String? = null,
     val paired: Boolean = false,
     val settings: DeviceSettings = DeviceSettings(),
+    val todaySchedule: DailyPrayerSchedule? = null,
+    val tomorrowSchedule: DailyPrayerSchedule? = null,
     val errorMessage: String? = null
+)
+
+data class EducationVideo(
+    val id: String,
+    val title: String,
+    val url: String,
+    val order: Int = 0
+)
+
+data class DailyPrayerSchedule(
+    val date: String,
+    val fajr: String = "-",
+    val dzuhur: String = "-",
+    val ashar: String = "-",
+    val maghrib: String = "-",
+    val isya: String = "-"
 )
 
 class FirebasePairingManager(private val context: Context) {
@@ -34,7 +63,11 @@ class FirebasePairingManager(private val context: Context) {
     private var deviceRef: DatabaseReference? = null
     private var cachedDeviceId: String = ""
 
-    suspend fun initializeAndPublishPairingCode(): PairingUiState {
+    // Melacak status pairing terakhir untuk mendeteksi event "unpaired"
+    private var lastPairedState: Boolean? = null
+
+    // Tambahkan parameter forceNewCode untuk memaksa pembuatan kode baru saat unpair
+    suspend fun initializeAndPublishPairingCode(forceNewCode: Boolean = false): PairingUiState {
         val app = ensureFirebaseApp()
         val database = FirebaseDatabase.getInstance(app, BuildConfig.FIREBASE_DB_URL)
         val deviceId = getOrCreateDeviceId()
@@ -49,9 +82,16 @@ class FirebasePairingManager(private val context: Context) {
 
         val meta = deviceSnapshot.child("meta")
         val settings = deviceSnapshot.child("settings")
+        val schedule = deviceSnapshot.child("schedule")
         val isAlreadyPaired = meta.child("paired").getValue(Boolean::class.java) ?: false
+        val deviceSettings = settings.toDeviceSettings()
+        val scheduleState = schedule.toScheduleState(deviceSettings.timezone)
 
-        if (isAlreadyPaired) {
+        // Inisialisasi state awal jika aplikasi baru dibuka
+        if (lastPairedState == null) lastPairedState = isAlreadyPaired
+
+        // 1. Jika sudah dipairing dan tidak dipaksa buat baru, gunakan data lama
+        if (isAlreadyPaired && !forceNewCode) {
             database.reference.child("devices").child(deviceId).child("meta")
                 .child("lastSeenAt")
                 .setValue(ServerValue.TIMESTAMP)
@@ -61,14 +101,17 @@ class FirebasePairingManager(private val context: Context) {
                 deviceId = deviceId,
                 pairingCode = meta.child("pairingCode").getValue(String::class.java),
                 paired = true,
-                settings = settings.toDeviceSettings()
+                settings = deviceSettings,
+                todaySchedule = scheduleState.first,
+                tomorrowSchedule = scheduleState.second
             )
         }
 
         val existingCode = meta.child("pairingCode").getValue(String::class.java)
         val existingExpiresAt = meta.child("pairingCodeExpiresAt").getValue(Long::class.java) ?: 0L
 
-        if (!existingCode.isNullOrBlank() && existingExpiresAt > now) {
+        // 2. Jika status belum pairing, tidak dipaksa buat baru, dan kode lama masih aktif (< 5 menit)
+        if (!forceNewCode && !existingCode.isNullOrBlank() && existingExpiresAt > now) {
             database.reference.child("devices").child(deviceId).child("meta")
                 .child("lastSeenAt")
                 .setValue(ServerValue.TIMESTAMP)
@@ -78,18 +121,21 @@ class FirebasePairingManager(private val context: Context) {
                 deviceId = deviceId,
                 pairingCode = existingCode,
                 paired = false,
-                settings = settings.toDeviceSettings()
+                settings = deviceSettings,
+                todaySchedule = scheduleState.first,
+                tomorrowSchedule = scheduleState.second
             )
         }
 
+        // 3. Generate Kode Baru (Karena forceNewCode = true, ATAU kode lama kadaluarsa)
         val pairingCode = generatePairingCode()
-        val expiresAt = now + 5 * 60 * 1000
+        val expiresAt = now + 5 * 60 * 1000 // Berlaku 5 menit
 
         val deviceMeta = hashMapOf<String, Any?>(
             "platform" to "android_tv",
             "pairingCode" to pairingCode,
             "pairingCodeExpiresAt" to expiresAt,
-            "paired" to false,
+            "paired" to false, // Pastikan set ke false
             "updatedAt" to ServerValue.TIMESTAMP,
             "lastSeenAt" to ServerValue.TIMESTAMP
         )
@@ -108,11 +154,16 @@ class FirebasePairingManager(private val context: Context) {
 
         database.reference.updateChildren(updates).await()
 
+        // Perbarui state lokal
+        lastPairedState = false
+
         return PairingUiState(
             deviceId = deviceId,
             pairingCode = pairingCode,
             paired = false,
-            settings = settings.toDeviceSettings()
+            settings = deviceSettings,
+            todaySchedule = scheduleState.first,
+            tomorrowSchedule = scheduleState.second
         )
     }
 
@@ -124,19 +175,53 @@ class FirebasePairingManager(private val context: Context) {
         val app = FirebaseApp.getInstance()
         val database = FirebaseDatabase.getInstance(app, BuildConfig.FIREBASE_DB_URL)
         deviceRef = database.reference.child("devices").child(cachedDeviceId)
+
         deviceListener = object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
                 val meta = snapshot.child("meta")
                 val settings = snapshot.child("settings")
+                val schedule = snapshot.child("schedule")
 
-                onChanged(
-                    PairingUiState(
-                        deviceId = cachedDeviceId,
-                        pairingCode = meta.child("pairingCode").getValue(String::class.java),
-                        paired = meta.child("paired").getValue(Boolean::class.java) ?: false,
-                        settings = settings.toDeviceSettings()
+                val isPaired = meta.child("paired").getValue(Boolean::class.java) ?: false
+                val pairingCode = meta.child("pairingCode").getValue(String::class.java)
+                val expiresAt = meta.child("pairingCodeExpiresAt").getValue(Long::class.java) ?: 0L
+                val now = System.currentTimeMillis()
+                val deviceSettings = settings.toDeviceSettings()
+                val scheduleState = schedule.toScheduleState(deviceSettings.timezone)
+
+                // Deteksi transisi: Apakah mobile app baru saja memutus koneksi?
+                val justUnpaired = (lastPairedState == true && !isPaired)
+                lastPairedState = isPaired
+
+                // Jika TV tidak dalam mode paired DAN (baru saja di-unpair ATAU kodenya kadaluarsa/kosong)
+                if (!isPaired && (justUnpaired || pairingCode.isNullOrBlank() || expiresAt < now)) {
+                    // Eksekusi suspend function di background thread
+                    CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            // Paksa pembuatan kode baru jika "justUnpaired" adalah true
+                            val newState = initializeAndPublishPairingCode(forceNewCode = justUnpaired)
+                            withContext(Dispatchers.Main) {
+                                onChanged(newState)
+                            }
+                        } catch (e: Exception) {
+                            withContext(Dispatchers.Main) {
+                                onError(e.message ?: "Gagal membuat kode baru otomatis")
+                            }
+                        }
+                    }
+                } else {
+                    // Mode normal: TV sedang paired, atau kode belum kadaluarsa
+                    onChanged(
+                        PairingUiState(
+                            deviceId = cachedDeviceId,
+                            pairingCode = pairingCode,
+                            paired = isPaired,
+                            settings = deviceSettings,
+                            todaySchedule = scheduleState.first,
+                            tomorrowSchedule = scheduleState.second
+                        )
                     )
-                )
+                }
             }
 
             override fun onCancelled(error: com.google.firebase.database.DatabaseError) {
@@ -191,11 +276,101 @@ class FirebasePairingManager(private val context: Context) {
     }
 
     private fun DataSnapshot.toDeviceSettings(): DeviceSettings {
+        val speed = child("runningTextSpeed").getValue(Double::class.java)
+            ?: child("runningTextSpeed").getValue(Long::class.java)?.toDouble()
+            ?: 5.0
+        val brightness = child("runningTextBrightness").getValue(Double::class.java)
+            ?: child("runningTextBrightness").getValue(Long::class.java)?.toDouble()
+            ?: 80.0
         return DeviceSettings(
             mosqueName = child("mosqueName").getValue(String::class.java) ?: "Belum diatur",
             province = child("province").getValue(String::class.java) ?: "Belum diatur",
             city = child("city").getValue(String::class.java) ?: "Belum diatur",
-            timezone = child("timezone").getValue(String::class.java) ?: "Asia/Jakarta"
+            timezone = child("timezone").getValue(String::class.java) ?: "Asia/Jakarta",
+            videoUrl = child("videoUrl").getValue(String::class.java) ?: "",
+            runningText = child("runningText").getValue(String::class.java) ?: "",
+            runningTextSpeed = speed.toFloat(),
+            runningTextBrightness = brightness.toFloat(),
+            educationVideos = child("educationVideos").toEducationVideoList()
         )
+    }
+
+    private fun DataSnapshot.toScheduleState(
+        timezone: String
+    ): Pair<DailyPrayerSchedule?, DailyPrayerSchedule?> {
+        val scheduleMap = toScheduleMap()
+        if (scheduleMap.isEmpty()) return Pair(null, null)
+        val todayKey = currentDateKey(timezone)
+        val today = scheduleMap[todayKey]
+        val tomorrowKey = runCatching { LocalDate.parse(todayKey).plusDays(1).toString() }
+            .getOrDefault(todayKey)
+        val tomorrow = scheduleMap[tomorrowKey]
+        return Pair(today, tomorrow)
+    }
+
+    private fun DataSnapshot.toScheduleMap(): Map<String, DailyPrayerSchedule> {
+        if (!exists()) return emptyMap()
+        val result = linkedMapOf<String, DailyPrayerSchedule>()
+        children.forEach { daySnap ->
+            val dateKey = daySnap.key?.trim().orEmpty()
+            if (dateKey.isEmpty()) return@forEach
+            val fajr = daySnap.child("fajr").getValue(String::class.java)
+                ?: daySnap.child("subuh").getValue(String::class.java)
+                ?: daySnap.child("imsak").getValue(String::class.java)
+                ?: "-"
+            val dzuhur = daySnap.child("dzuhur").getValue(String::class.java)
+                ?: daySnap.child("dhuhr").getValue(String::class.java)
+                ?: "-"
+            val ashar = daySnap.child("ashar").getValue(String::class.java)
+                ?: daySnap.child("asar").getValue(String::class.java)
+                ?: "-"
+            val maghrib = daySnap.child("maghrib").getValue(String::class.java) ?: "-"
+            val isya = daySnap.child("isya").getValue(String::class.java)
+                ?: daySnap.child("isha").getValue(String::class.java)
+                ?: "-"
+            result[dateKey] = DailyPrayerSchedule(
+                date = dateKey,
+                fajr = fajr,
+                dzuhur = dzuhur,
+                ashar = ashar,
+                maghrib = maghrib,
+                isya = isya
+            )
+        }
+        return result
+    }
+
+    private fun DataSnapshot.toEducationVideoList(): List<EducationVideo> {
+        if (!exists()) return emptyList()
+        val videos = mutableListOf<EducationVideo>()
+        children.forEach { videoSnap ->
+            val id = videoSnap.key?.trim().orEmpty()
+            if (id.isEmpty()) return@forEach
+            val title = videoSnap.child("title").getValue(String::class.java)
+                ?: videoSnap.child("name").getValue(String::class.java)
+                ?: "Video"
+            val url = videoSnap.child("url").getValue(String::class.java)
+                ?: videoSnap.child("videoUrl").getValue(String::class.java)
+                ?: ""
+            val order = videoSnap.child("order").getValue(Int::class.java)
+                ?: videoSnap.child("order").getValue(Long::class.java)?.toInt()
+                ?: videoSnap.child("index").getValue(Int::class.java)
+                ?: videoSnap.child("index").getValue(Long::class.java)?.toInt()
+                ?: 0
+            videos.add(
+                EducationVideo(
+                    id = id,
+                    title = title,
+                    url = url,
+                    order = order
+                )
+            )
+        }
+        return videos.sortedWith(compareBy<EducationVideo> { it.order }.thenBy { it.title })
+    }
+
+    private fun currentDateKey(timezone: String): String {
+        val zone = runCatching { ZoneId.of(timezone) }.getOrElse { ZoneId.systemDefault() }
+        return LocalDate.now(zone).toString()
     }
 }
