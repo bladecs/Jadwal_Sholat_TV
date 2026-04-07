@@ -1,0 +1,83 @@
+{
+  "project_info": {
+    "project_number": "406305609160",
+    "firebase_url": "https://jadwal-sholat-556bd-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "jadwal-sholat-556bd",
+    "storage_bucket": "jadwal-sholat-556bd.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:406305609160:android:07d29d4069a3106ea99cfd",
+        "android_client_info": {
+          "package_name": "com.company.jadwalsholattv"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "406305609160-i9ihu3kb41tuqfcisrqalj2dcv77c71o.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA9i5CLoTLP-_EdmrSQpqbCxqYthMp8wWQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "406305609160-i9ihu3kb41tuqfcisrqalj2dcv77c71o.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "406305609160-d0bomiih4t3cfemslttpp4rimhp9okjj.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.jdm"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:406305609160:android:8b79ca87bc6415a4a99cfd",
+        "android_client_info": {
+          "package_name": "com.example.jdm"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "406305609160-i9ihu3kb41tuqfcisrqalj2dcv77c71o.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA9i5CLoTLP-_EdmrSQpqbCxqYthMp8wWQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "406305609160-i9ihu3kb41tuqfcisrqalj2dcv77c71o.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "406305609160-d0bomiih4t3cfemslttpp4rimhp9okjj.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.jdm"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
