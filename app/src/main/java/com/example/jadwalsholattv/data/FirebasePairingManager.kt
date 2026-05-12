@@ -51,6 +51,7 @@ data class EducationVideo(
 data class DailyPrayerSchedule(
     val date: String,
     val fajr: String = "-",
+    val syuruk: String = "-",
     val dzuhur: String = "-",
     val ashar: String = "-",
     val maghrib: String = "-",
@@ -318,6 +319,11 @@ class FirebasePairingManager(private val context: Context) {
                 ?: daySnap.child("subuh").getValue(String::class.java)
                 ?: daySnap.child("imsak").getValue(String::class.java)
                 ?: "-"
+            val syuruk = daySnap.child("syuruk").getValue(String::class.java)
+                ?: daySnap.child("syuruq").getValue(String::class.java)
+                ?: daySnap.child("sunrise").getValue(String::class.java)
+                ?: daySnap.child("terbit").getValue(String::class.java)
+                ?: "-"
             val dzuhur = daySnap.child("dzuhur").getValue(String::class.java)
                 ?: daySnap.child("dhuhr").getValue(String::class.java)
                 ?: "-"
@@ -331,6 +337,7 @@ class FirebasePairingManager(private val context: Context) {
             result[dateKey] = DailyPrayerSchedule(
                 date = dateKey,
                 fajr = fajr,
+                syuruk = syuruk,
                 dzuhur = dzuhur,
                 ashar = ashar,
                 maghrib = maghrib,

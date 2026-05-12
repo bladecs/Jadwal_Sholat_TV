@@ -1,13 +1,18 @@
 package com.example.jadwalsholattv
 
+import android.content.ContentResolver
 import android.graphics.BlurMaskFilter
+import android.net.Uri
 import android.os.Bundle
 import android.provider.CalendarContract.Colors
 import android.util.Log
+import android.view.LayoutInflater
+import android.view.ViewGroup
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +33,7 @@ import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.Composable
@@ -60,6 +66,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -67,7 +74,14 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.lifecycleScope
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import com.example.jadwalsholattv.data.FirebasePairingManager
 import com.example.jadwalsholattv.data.PairingUiState
 import com.example.jadwalsholattv.data.DailyPrayerSchedule
@@ -91,6 +105,11 @@ private enum class CountdownPhase {
     BEFORE_PRAYER,
     ADZAN_HOLD,
     IQOMAH
+}
+
+private enum class CenterPage {
+    HOME,
+    LEARNING
 }
 
 private data class PrayerTime(
@@ -143,10 +162,11 @@ class MainActivity : ComponentActivity(){
 @Composable
 fun JadwalSholatTV(pairingUiState: PairingUiState) {
     var nowMillis by remember { mutableStateOf(System.currentTimeMillis()) }
+    var centerPage by remember { mutableStateOf(CenterPage.HOME) }
     val pairingStatusText = when {
         pairingUiState.paired -> "Terhubung"
-        pairingUiState.pairingCode.isNullOrBlank() -> "Belum Pairing"
-        else -> "Pair ${pairingUiState.pairingCode}"
+        !pairingUiState.pairingCode.isNullOrBlank() -> pairingUiState.pairingCode ?: "Belum Pairing"
+        else -> "Belum Pairing"
     }
     val shortDeviceId = if (pairingUiState.deviceId.length > 12) {
         pairingUiState.deviceId.take(12) + "..."
@@ -190,6 +210,7 @@ fun JadwalSholatTV(pairingUiState: PairingUiState) {
 
     val todayPrayerList = listOf(
         "Subuh" to (pairingUiState.todaySchedule?.fajr ?: "--:--"),
+        "Syuruk" to (pairingUiState.todaySchedule?.syuruk ?: "--:--"),
         "Dzuhur" to (pairingUiState.todaySchedule?.dzuhur ?: "--:--"),
         "Ashar" to (pairingUiState.todaySchedule?.ashar ?: "--:--"),
         "Maghrib" to (pairingUiState.todaySchedule?.maghrib ?: "--:--"),
@@ -199,13 +220,8 @@ fun JadwalSholatTV(pairingUiState: PairingUiState) {
     // Gunakan Box untuk menumpuk elemen (Z-axis)
     Box(modifier = Modifier.fillMaxSize()) {
 
-        // 1. Lapisan Paling Bawah: Gambar Background
-        Image(
-            painter = painterResource(id = R.drawable.bck_dsh),
-            contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.FillBounds
-        )
+        // 1. Lapisan Paling Bawah: Video Background
+        VideoBackground()
 
         // 2. Lapisan Tengah: Overlay Hitam
         // Menggunakan Box kosong dengan background lebih ringan daripada menggunakan Card
@@ -216,7 +232,19 @@ fun JadwalSholatTV(pairingUiState: PairingUiState) {
         )
 
         // 3. Lapisan Atas: Konten Utama
-        Column (modifier = Modifier.padding(20.dp).fillMaxSize()){
+        if (centerPage == CenterPage.LEARNING) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(20.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.White.copy(alpha = 0.72f))
+                    .padding(24.dp)
+            ) {
+                PembelajaranPage(onBackToHome = { centerPage = CenterPage.HOME })
+            }
+        } else {
+            Column (modifier = Modifier.padding(20.dp).fillMaxSize()){
             Row(modifier = Modifier.weight(8f),horizontalArrangement = Arrangement.spacedBy(15.dp)) {
                 // Left Panel
                 Column {
@@ -497,53 +525,20 @@ fun JadwalSholatTV(pairingUiState: PairingUiState) {
                         }
                     }
                 }
-                // Navbar
-                Column (modifier = Modifier.weight(1f),horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center){
-                    Spacer( modifier = Modifier.size(width = 380.dp,height = 360.dp) )
-                    Box(
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxSize(),
+                    contentAlignment = Alignment.BottomCenter
+                ) {
+                    NavigationBar(
+                        selectedPage = centerPage,
+                        onNavigateHome = { centerPage = CenterPage.HOME },
+                        onNavigateLearning = { centerPage = CenterPage.LEARNING },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(140.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(
-                                color = Color.White.copy(alpha = 0.7f)
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row (
-                            modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically
-                        ){
-                            Box(
-                                modifier = Modifier
-                                    .shadow(
-                                        elevation = 5.dp,
-                                        shape = RoundedCornerShape(80.dp)
-                                    )
-                                    .width(150.dp)
-                                    .height(45.dp)
-                                    .clip(RoundedCornerShape(80.dp))
-                                    .background(
-                                        color = Color.White
-                                    )
-                            )
-                            Spacer(
-                                modifier = Modifier.width(15.dp)
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .shadow(
-                                        elevation = 5.dp,
-                                        shape = RoundedCornerShape(80.dp)
-                                    )
-                                    .width(150.dp)
-                                    .height(45.dp)
-                                    .clip(RoundedCornerShape(80.dp))
-                                    .background(
-                                        color = Color.White
-                                    )
-                            )
-                        }
-                    }
+                            .padding(horizontal = 12.dp)
+                    )
                 }
                 Column {
                     // Bagian Jadwal Sholat
@@ -575,26 +570,18 @@ fun JadwalSholatTV(pairingUiState: PairingUiState) {
                             Row (
                                 modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
                             ) {
-                                if (secondRow.isNotEmpty()) {
-                                    PrayerTimeBox(time = secondRow[0].second, label = secondRow[0].first)
-                                } else {
-                                    Box(modifier = Modifier.width(65.dp).height(90.dp))
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .width(65.dp)
-                                        .height(90.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                )
-                                if (secondRow.size > 1) {
-                                    PrayerTimeBox(time = secondRow[1].second, label = secondRow[1].first)
-                                } else {
-                                    Box(modifier = Modifier.width(65.dp).height(90.dp))
+                                repeat(3) { index ->
+                                    val prayer = secondRow.getOrNull(index)
+                                    if (prayer != null) {
+                                        PrayerTimeBox(time = prayer.second, label = prayer.first)
+                                    } else {
+                                        Box(modifier = Modifier.width(65.dp).height(90.dp))
+                                    }
                                 }
                             }
                         }
                     }
-                    Spacer( modifier = Modifier.size(width = 260.dp,height = 15.dp) )
+                    Spacer(modifier = Modifier.size(width = 260.dp, height = 15.dp))
                     // Bagian Hitung Mundur Sholat dan Iqomah
                     Card(
                         colors = CardDefaults.cardColors(
@@ -771,9 +758,65 @@ fun JadwalSholatTV(pairingUiState: PairingUiState) {
                     brightness = runningTextBrightness
                 )
             }
+            }
         }
 
     }
+}
+
+@Composable
+private fun VideoBackground() {
+    val context = LocalContext.current
+    val videoUri = remember(context) {
+        Uri.Builder()
+            .scheme(ContentResolver.SCHEME_ANDROID_RESOURCE)
+            .authority(context.packageName)
+            .appendPath(R.raw.video_bck.toString())
+            .build()
+    }
+    val player = remember(context, videoUri) {
+        ExoPlayer.Builder(context).build().apply {
+            repeatMode = Player.REPEAT_MODE_ONE
+            volume = 0f
+            addListener(
+                object : Player.Listener {
+                    override fun onPlayerError(error: PlaybackException) {
+                        Log.e("VideoBackground", "Cannot play video_bck.mp4", error)
+                    }
+                }
+            )
+            setMediaItem(MediaItem.fromUri(videoUri))
+            prepare()
+            playWhenReady = true
+        }
+    }
+
+    DisposableEffect(player) {
+        onDispose {
+            player.release()
+        }
+    }
+
+    AndroidView(
+        factory = { viewContext ->
+            (LayoutInflater.from(viewContext)
+                .inflate(R.layout.view_video_background, null, false) as PlayerView).apply {
+                useController = false
+                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+                this.player = player
+            }
+        },
+        update = { playerView ->
+            playerView.player = player
+            player.playWhenReady = true
+        },
+        modifier = Modifier.fillMaxSize()
+    )
 }
 
 @Composable
@@ -826,6 +869,74 @@ fun RunningTickerText(
                 .onSizeChanged { textWidthPx = it.width.toFloat() }
                 .offset { androidx.compose.ui.unit.IntOffset(xOffset.roundToInt(), 0) }
                 .graphicsLayer { this.alpha = alpha }
+        )
+    }
+}
+
+@Composable
+private fun NavigationBar(
+    selectedPage: CenterPage,
+    onNavigateHome: () -> Unit,
+    onNavigateLearning: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .height(56.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(
+                color = Color.White.copy(alpha = 0.7f)
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            NavigationPill(
+                text = "Home",
+                selected = selectedPage == CenterPage.HOME,
+                onClick = onNavigateHome
+            )
+            Spacer(modifier = Modifier.width(15.dp))
+            NavigationPill(
+                text = "Pembelajaran",
+                selected = selectedPage == CenterPage.LEARNING,
+                onClick = onNavigateLearning
+            )
+        }
+    }
+}
+
+@Composable
+private fun NavigationPill(
+    text: String,
+    selected: Boolean,
+    width: Dp = 150.dp,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .shadow(
+                elevation = 5.dp,
+                shape = RoundedCornerShape(80.dp)
+            )
+            .width(width)
+            .height(34.dp)
+            .clip(RoundedCornerShape(80.dp))
+            .background(
+                color = if (selected) Color(0xFF00A78A) else Color.White
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            color = if (selected) Color.White else Color.Black,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
+            style = LocalTextStyle.current.copy(fontSize = 12.sp)
         )
     }
 }
