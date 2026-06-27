@@ -79,6 +79,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -764,6 +765,7 @@ fun JadwalSholatTV(pairingUiState: PairingUiState) {
     }
 }
 
+@OptIn(UnstableApi::class)
 @Composable
 private fun VideoBackground() {
     val context = LocalContext.current

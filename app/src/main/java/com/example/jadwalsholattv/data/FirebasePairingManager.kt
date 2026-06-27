@@ -277,23 +277,57 @@ class FirebasePairingManager(private val context: Context) {
     }
 
     private fun DataSnapshot.toDeviceSettings(): DeviceSettings {
-        val speed = child("runningTextSpeed").getValue(Double::class.java)
-            ?: child("runningTextSpeed").getValue(Long::class.java)?.toDouble()
-            ?: 5.0
-        val brightness = child("runningTextBrightness").getValue(Double::class.java)
-            ?: child("runningTextBrightness").getValue(Long::class.java)?.toDouble()
-            ?: 80.0
+        val speed = child("runningTextSpeed").toDoubleValue(default = 5.0)
+        val brightness = child("runningTextBrightness").toDoubleValue(default = 80.0)
         return DeviceSettings(
-            mosqueName = child("mosqueName").getValue(String::class.java) ?: "Belum diatur",
-            province = child("province").getValue(String::class.java) ?: "Belum diatur",
-            city = child("city").getValue(String::class.java) ?: "Belum diatur",
-            timezone = child("timezone").getValue(String::class.java) ?: "Asia/Jakarta",
-            videoUrl = child("videoUrl").getValue(String::class.java) ?: "",
-            runningText = child("runningText").getValue(String::class.java) ?: "",
+            mosqueName = child("mosqueName").toStringValue(default = "Belum diatur"),
+            province = child("province").toStringValue(default = "Belum diatur"),
+            city = child("city").toStringValue(default = "Belum diatur"),
+            timezone = child("timezone").toStringValue(default = "Asia/Jakarta"),
+            videoUrl = child("videoUrl").toStringValue(),
+            runningText = child("runningText").toRunningTextValue(),
             runningTextSpeed = speed.toFloat(),
             runningTextBrightness = brightness.toFloat(),
             educationVideos = child("educationVideos").toEducationVideoList()
         )
+    }
+
+    private fun DataSnapshot.toStringValue(default: String = ""): String {
+        return when (val raw = value) {
+            null -> default
+            is String -> raw
+            is Number, is Boolean -> raw.toString()
+            else -> default
+        }
+    }
+
+    private fun DataSnapshot.toDoubleValue(default: Double): Double {
+        return when (val raw = value) {
+            is Double -> raw
+            is Long -> raw.toDouble()
+            is Int -> raw.toDouble()
+            is Float -> raw.toDouble()
+            is String -> raw.toDoubleOrNull() ?: default
+            else -> default
+        }
+    }
+
+    private fun DataSnapshot.toRunningTextValue(): String {
+        val raw = value ?: return ""
+        return when (raw) {
+            is String -> raw
+            is Number, is Boolean -> raw.toString()
+            is Map<*, *> -> {
+                val preferredKeys = listOf("text", "value", "message", "content", "runningText")
+                preferredKeys
+                    .firstNotNullOfOrNull { key ->
+                        (raw[key] as? String)?.takeIf { it.isNotBlank() }
+                    }
+                    ?: raw.values.firstNotNullOfOrNull { it as? String }
+                    ?: ""
+            }
+            else -> ""
+        }
     }
 
     private fun DataSnapshot.toScheduleState(
