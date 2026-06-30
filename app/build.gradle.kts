@@ -63,8 +63,7 @@ dependencies {
     implementation(libs.androidx.storage)
     implementation(libs.androidx.material3.android)
     implementation(libs.androidx.foundation.layout.android)
-    implementation(libs.androidx.foundation.layout.android)
-    implementation(libs.androidx.foundation.layout.android)
+    implementation("androidx.compose.animation:animation")
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.database)
     implementation(libs.firebase.analytics)
@@ -78,6 +77,3 @@ dependencies {
     debugImplementation(libs.androidx.ui.test.manifest)
 }
 
-if (file("google-services.json").exists()) {
-    apply(plugin = "com.google.gms.google-services")
-}

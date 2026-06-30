@@ -1,10 +1,12 @@
 package com.example.jadwalsholattv.data
 
 import android.content.Context
+import android.util.Log
 import com.example.jadwalsholattv.BuildConfig
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.DatabaseReference
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ServerValue
@@ -28,7 +30,9 @@ data class DeviceSettings(
     val runningText: String = "",
     val runningTextSpeed: Float = 5f,
     val runningTextBrightness: Float = 80f,
-    val educationVideos: List<EducationVideo> = emptyList()
+    val educationVideos: List<EducationVideo> = emptyList(),
+    val hadithText: String = "",
+    val hadithSource: String = ""
 )
 
 data class PairingUiState(
@@ -59,27 +63,54 @@ data class DailyPrayerSchedule(
 )
 
 class FirebasePairingManager(private val context: Context) {
+
     private val prefs = context.getSharedPreferences("pairing_prefs", Context.MODE_PRIVATE)
     private var deviceListener: ValueEventListener? = null
     private var deviceRef: DatabaseReference? = null
     private var cachedDeviceId: String = ""
-
-    // Melacak status pairing terakhir untuk mendeteksi event "unpaired"
     private var lastPairedState: Boolean? = null
 
-    // Tambahkan parameter forceNewCode untuk memaksa pembuatan kode baru saat unpair
+    companion object {
+        private const val TAG = "FirebasePairing"
+        private var persistenceEnabled = false
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // Inisialisasi & Pairing
+    // ════════════════════════════════════════════════════════════
+
     suspend fun initializeAndPublishPairingCode(forceNewCode: Boolean = false): PairingUiState {
         val app = ensureFirebaseApp()
         val database = FirebaseDatabase.getInstance(app, BuildConfig.FIREBASE_DB_URL)
+
+        // Layer 1: aktifkan Firebase offline persistence (hanya sekali)
+        if (!persistenceEnabled) {
+            try {
+                database.setPersistenceEnabled(true)
+                Log.i(TAG, "Firebase offline persistence aktif")
+            } catch (e: Exception) {
+                Log.w(TAG, "setPersistenceEnabled dilewati: ${e.message}")
+            }
+            persistenceEnabled = true
+        }
+
         val deviceId = getOrCreateDeviceId()
         cachedDeviceId = deviceId
         val now = System.currentTimeMillis()
 
-        val deviceSnapshot = database.reference
-            .child("devices")
-            .child(deviceId)
-            .get()
-            .await()
+        // Ambil data dari Firebase (offline persistence akan return cache jika tidak ada internet)
+        val deviceSnapshot = try {
+            database.reference
+                .child("devices")
+                .child(deviceId)
+                .get()
+                .await()
+        } catch (e: Exception) {
+            // Tidak ada internet DAN belum ada Firebase cache → pakai Layer 2 (SharedPreferences)
+            Log.w(TAG, "Offline & no Firebase cache – memuat dari SharedPreferences", e)
+            return loadLocalCache()
+                ?: PairingUiState(deviceId = deviceId, errorMessage = "Offline, belum ada data tersimpan")
+        }
 
         val meta = deviceSnapshot.child("meta")
         val settings = deviceSnapshot.child("settings")
@@ -88,17 +119,11 @@ class FirebasePairingManager(private val context: Context) {
         val deviceSettings = settings.toDeviceSettings()
         val scheduleState = schedule.toScheduleState(deviceSettings.timezone)
 
-        // Inisialisasi state awal jika aplikasi baru dibuka
         if (lastPairedState == null) lastPairedState = isAlreadyPaired
 
-        // 1. Jika sudah dipairing dan tidak dipaksa buat baru, gunakan data lama
         if (isAlreadyPaired && !forceNewCode) {
-            database.reference.child("devices").child(deviceId).child("meta")
-                .child("lastSeenAt")
-                .setValue(ServerValue.TIMESTAMP)
-                .await()
-
-            return PairingUiState(
+            silentUpdate(database.reference.child("devices").child(deviceId).child("meta").child("lastSeenAt"))
+            val state = PairingUiState(
                 deviceId = deviceId,
                 pairingCode = meta.child("pairingCode").getValue(String::class.java),
                 paired = true,
@@ -106,19 +131,16 @@ class FirebasePairingManager(private val context: Context) {
                 todaySchedule = scheduleState.first,
                 tomorrowSchedule = scheduleState.second
             )
+            saveLocalCache(state)
+            return state
         }
 
         val existingCode = meta.child("pairingCode").getValue(String::class.java)
         val existingExpiresAt = meta.child("pairingCodeExpiresAt").getValue(Long::class.java) ?: 0L
 
-        // 2. Jika status belum pairing, tidak dipaksa buat baru, dan kode lama masih aktif (< 5 menit)
         if (!forceNewCode && !existingCode.isNullOrBlank() && existingExpiresAt > now) {
-            database.reference.child("devices").child(deviceId).child("meta")
-                .child("lastSeenAt")
-                .setValue(ServerValue.TIMESTAMP)
-                .await()
-
-            return PairingUiState(
+            silentUpdate(database.reference.child("devices").child(deviceId).child("meta").child("lastSeenAt"))
+            val state = PairingUiState(
                 deviceId = deviceId,
                 pairingCode = existingCode,
                 paired = false,
@@ -126,39 +148,40 @@ class FirebasePairingManager(private val context: Context) {
                 todaySchedule = scheduleState.first,
                 tomorrowSchedule = scheduleState.second
             )
+            saveLocalCache(state)
+            return state
         }
 
-        // 3. Generate Kode Baru (Karena forceNewCode = true, ATAU kode lama kadaluarsa)
         val pairingCode = generatePairingCode()
-        val expiresAt = now + 5 * 60 * 1000 // Berlaku 5 menit
+        val expiresAt = now + 5 * 60 * 1000
 
         val deviceMeta = hashMapOf<String, Any?>(
             "platform" to "android_tv",
             "pairingCode" to pairingCode,
             "pairingCodeExpiresAt" to expiresAt,
-            "paired" to false, // Pastikan set ke false
+            "paired" to false,
             "updatedAt" to ServerValue.TIMESTAMP,
             "lastSeenAt" to ServerValue.TIMESTAMP
         )
-
         val pairingPayload = hashMapOf<String, Any?>(
             "deviceId" to deviceId,
             "expiresAt" to expiresAt,
             "used" to false,
             "createdAt" to ServerValue.TIMESTAMP
         )
-
         val updates = hashMapOf<String, Any>(
             "/devices/$deviceId/meta" to deviceMeta,
             "/pairingCodes/$pairingCode" to pairingPayload
         )
 
-        database.reference.updateChildren(updates).await()
+        try {
+            database.reference.updateChildren(updates).await()
+        } catch (e: Exception) {
+            Log.w(TAG, "Tidak bisa tulis kode pairing (offline?): ${e.message}")
+        }
 
-        // Perbarui state lokal
         lastPairedState = false
-
-        return PairingUiState(
+        val state = PairingUiState(
             deviceId = deviceId,
             pairingCode = pairingCode,
             paired = false,
@@ -166,7 +189,13 @@ class FirebasePairingManager(private val context: Context) {
             todaySchedule = scheduleState.first,
             tomorrowSchedule = scheduleState.second
         )
+        saveLocalCache(state)
+        return state
     }
+
+    // ════════════════════════════════════════════════════════════
+    // Real-time Listener
+    // ════════════════════════════════════════════════════════════
 
     fun observeDevice(onChanged: (PairingUiState) -> Unit, onError: (String) -> Unit) {
         if (cachedDeviceId.isBlank()) {
@@ -176,6 +205,9 @@ class FirebasePairingManager(private val context: Context) {
         val app = FirebaseApp.getInstance()
         val database = FirebaseDatabase.getInstance(app, BuildConfig.FIREBASE_DB_URL)
         deviceRef = database.reference.child("devices").child(cachedDeviceId)
+
+        // Layer 1: pastikan node ini selalu tersinkron untuk akses offline
+        deviceRef?.keepSynced(true)
 
         deviceListener = object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
@@ -190,18 +222,15 @@ class FirebasePairingManager(private val context: Context) {
                 val deviceSettings = settings.toDeviceSettings()
                 val scheduleState = schedule.toScheduleState(deviceSettings.timezone)
 
-                // Deteksi transisi: Apakah mobile app baru saja memutus koneksi?
                 val justUnpaired = (lastPairedState == true && !isPaired)
                 lastPairedState = isPaired
 
-                // Jika TV tidak dalam mode paired DAN (baru saja di-unpair ATAU kodenya kadaluarsa/kosong)
                 if (!isPaired && (justUnpaired || pairingCode.isNullOrBlank() || expiresAt < now)) {
-                    // Eksekusi suspend function di background thread
                     CoroutineScope(Dispatchers.IO).launch {
                         try {
-                            // Paksa pembuatan kode baru jika "justUnpaired" adalah true
                             val newState = initializeAndPublishPairingCode(forceNewCode = justUnpaired)
                             withContext(Dispatchers.Main) {
+                                saveLocalCache(newState)
                                 onChanged(newState)
                             }
                         } catch (e: Exception) {
@@ -211,31 +240,127 @@ class FirebasePairingManager(private val context: Context) {
                         }
                     }
                 } else {
-                    // Mode normal: TV sedang paired, atau kode belum kadaluarsa
-                    onChanged(
-                        PairingUiState(
-                            deviceId = cachedDeviceId,
-                            pairingCode = pairingCode,
-                            paired = isPaired,
-                            settings = deviceSettings,
-                            todaySchedule = scheduleState.first,
-                            tomorrowSchedule = scheduleState.second
-                        )
+                    val newState = PairingUiState(
+                        deviceId = cachedDeviceId,
+                        pairingCode = pairingCode,
+                        paired = isPaired,
+                        settings = deviceSettings,
+                        todaySchedule = scheduleState.first,
+                        tomorrowSchedule = scheduleState.second
                     )
+                    // Layer 2: simpan setiap data baru ke SharedPreferences
+                    saveLocalCache(newState)
+                    onChanged(newState)
                 }
             }
 
-            override fun onCancelled(error: com.google.firebase.database.DatabaseError) {
-                onError(error.message)
+            override fun onCancelled(error: DatabaseError) {
+                Log.w(TAG, "Listener dibatalkan: ${error.message}")
+                // Coba sajikan dari cache lokal
+                val cached = loadLocalCache()
+                if (cached != null) {
+                    Log.i(TAG, "Menyajikan data dari cache lokal")
+                    onChanged(cached)
+                } else {
+                    onError(error.message ?: "Database error: ${error.code}")
+                }
             }
         }
         deviceRef?.addValueEventListener(deviceListener as ValueEventListener)
     }
 
+    /** Kembalikan data terakhir yang tersimpan di SharedPreferences (untuk fallback di MainActivity). */
+    fun loadCachedState(): PairingUiState? = loadLocalCache()
+
     fun stopObserving() {
-        val listener = deviceListener ?: return
-        deviceRef?.removeEventListener(listener)
+        deviceListener?.let { deviceRef?.removeEventListener(it) }
         deviceListener = null
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // Layer 2: SharedPreferences Cache
+    // ════════════════════════════════════════════════════════════
+
+    private fun saveLocalCache(state: PairingUiState) {
+        prefs.edit().apply {
+            putString("cache_mosqueName", state.settings.mosqueName)
+            putString("cache_province", state.settings.province)
+            putString("cache_city", state.settings.city)
+            putString("cache_timezone", state.settings.timezone)
+            putString("cache_videoUrl", state.settings.videoUrl)
+            putString("cache_runningText", state.settings.runningText)
+            putFloat("cache_runningTextSpeed", state.settings.runningTextSpeed)
+            putFloat("cache_runningTextBrightness", state.settings.runningTextBrightness)
+            putString("cache_hadithText", state.settings.hadithText)
+            putString("cache_hadithSource", state.settings.hadithSource)
+            putBoolean("cache_paired", state.paired)
+            putString("cache_pairingCode", state.pairingCode ?: "")
+            putString("cache_todaySchedule", state.todaySchedule?.toSaveString() ?: "")
+            putString("cache_tomorrowSchedule", state.tomorrowSchedule?.toSaveString() ?: "")
+            putLong("cache_savedAt", System.currentTimeMillis())
+        }.apply()
+        Log.d(TAG, "Cache lokal diperbarui")
+    }
+
+    private fun loadLocalCache(): PairingUiState? {
+        if (prefs.getLong("cache_savedAt", 0L) == 0L) return null
+        val settings = DeviceSettings(
+            mosqueName = prefs.getString("cache_mosqueName", "Belum diatur") ?: "Belum diatur",
+            province = prefs.getString("cache_province", "Belum diatur") ?: "Belum diatur",
+            city = prefs.getString("cache_city", "Belum diatur") ?: "Belum diatur",
+            timezone = prefs.getString("cache_timezone", "Asia/Jakarta") ?: "Asia/Jakarta",
+            videoUrl = prefs.getString("cache_videoUrl", "") ?: "",
+            runningText = prefs.getString("cache_runningText", "") ?: "",
+            runningTextSpeed = prefs.getFloat("cache_runningTextSpeed", 5f),
+            runningTextBrightness = prefs.getFloat("cache_runningTextBrightness", 80f),
+            hadithText = prefs.getString("cache_hadithText", "") ?: "",
+            hadithSource = prefs.getString("cache_hadithSource", "") ?: ""
+        )
+        return PairingUiState(
+            deviceId = getOrCreateDeviceId(),
+            pairingCode = prefs.getString("cache_pairingCode", null)?.ifBlank { null },
+            paired = prefs.getBoolean("cache_paired", false),
+            settings = settings,
+            todaySchedule = parseSavedSchedule(prefs.getString("cache_todaySchedule", "") ?: ""),
+            tomorrowSchedule = parseSavedSchedule(prefs.getString("cache_tomorrowSchedule", "") ?: "")
+        )
+    }
+
+    private fun DailyPrayerSchedule.toSaveString(): String =
+        "$date|$fajr|$syuruk|$dzuhur|$ashar|$maghrib|$isya"
+
+    private fun parseSavedSchedule(str: String): DailyPrayerSchedule? {
+        if (str.isBlank()) return null
+        val p = str.split("|")
+        if (p.size < 7) return null
+        return DailyPrayerSchedule(
+            date = p[0], fajr = p[1], syuruk = p[2],
+            dzuhur = p[3], ashar = p[4], maghrib = p[5], isya = p[6]
+        )
+    }
+
+    private fun addMinutesToTime(timeStr: String, minutes: Int): String {
+        if (timeStr == "-" || timeStr.isBlank()) return "-"
+        return try {
+            val parts = timeStr.trim().split(":")
+            val totalMinutes = parts[0].toInt() * 60 + parts[1].toInt() + minutes
+            String.format("%02d:%02d", (totalMinutes / 60) % 24, totalMinutes % 60)
+        } catch (e: Exception) {
+            "-"
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // Helper
+    // ════════════════════════════════════════════════════════════
+
+    /** Update Firebase tanpa throw jika offline. */
+    private suspend fun silentUpdate(ref: DatabaseReference) {
+        try {
+            ref.setValue(ServerValue.TIMESTAMP).await()
+        } catch (e: Exception) {
+            Log.d(TAG, "silentUpdate dilewati (offline?): ${e.message}")
+        }
     }
 
     private fun ensureFirebaseApp(): FirebaseApp {
@@ -249,7 +374,8 @@ class FirebasePairingManager(private val context: Context) {
 
         if (apiKey.isBlank() || appId.isBlank() || projectId.isBlank()) {
             error(
-                "Firebase belum siap. Tambahkan app/google-services.json ATAU isi FIREBASE_API_KEY, FIREBASE_APP_ID, dan FIREBASE_PROJECT_ID di app/build.gradle.kts."
+                "Firebase belum siap. Tambahkan app/google-services.json ATAU isi FIREBASE_API_KEY, " +
+                "FIREBASE_APP_ID, dan FIREBASE_PROJECT_ID di app/build.gradle.kts."
             )
         }
 
@@ -272,9 +398,12 @@ class FirebasePairingManager(private val context: Context) {
         return newId
     }
 
-    private fun generatePairingCode(): String {
-        return Random.nextInt(100_000, 1_000_000).toString()
-    }
+    private fun generatePairingCode(): String =
+        Random.nextInt(100_000, 1_000_000).toString()
+
+    // ════════════════════════════════════════════════════════════
+    // DataSnapshot parsers
+    // ════════════════════════════════════════════════════════════
 
     private fun DataSnapshot.toDeviceSettings(): DeviceSettings {
         val speed = child("runningTextSpeed").toDoubleValue(default = 5.0)
@@ -288,21 +417,22 @@ class FirebasePairingManager(private val context: Context) {
             runningText = child("runningText").toRunningTextValue(),
             runningTextSpeed = speed.toFloat(),
             runningTextBrightness = brightness.toFloat(),
-            educationVideos = child("educationVideos").toEducationVideoList()
+            educationVideos = child("educationVideos").toEducationVideoList(),
+            hadithText = child("hadithText").toStringValue(),
+            hadithSource = child("hadithSource").toStringValue()
         )
     }
 
-    private fun DataSnapshot.toStringValue(default: String = ""): String {
-        return when (val raw = value) {
+    private fun DataSnapshot.toStringValue(default: String = ""): String =
+        when (val raw = value) {
             null -> default
             is String -> raw
             is Number, is Boolean -> raw.toString()
             else -> default
         }
-    }
 
-    private fun DataSnapshot.toDoubleValue(default: Double): Double {
-        return when (val raw = value) {
+    private fun DataSnapshot.toDoubleValue(default: Double): Double =
+        when (val raw = value) {
             is Double -> raw
             is Long -> raw.toDouble()
             is Int -> raw.toDouble()
@@ -310,7 +440,6 @@ class FirebasePairingManager(private val context: Context) {
             is String -> raw.toDoubleOrNull() ?: default
             else -> default
         }
-    }
 
     private fun DataSnapshot.toRunningTextValue(): String {
         val raw = value ?: return ""
@@ -319,12 +448,9 @@ class FirebasePairingManager(private val context: Context) {
             is Number, is Boolean -> raw.toString()
             is Map<*, *> -> {
                 val preferredKeys = listOf("text", "value", "message", "content", "runningText")
-                preferredKeys
-                    .firstNotNullOfOrNull { key ->
-                        (raw[key] as? String)?.takeIf { it.isNotBlank() }
-                    }
-                    ?: raw.values.firstNotNullOfOrNull { it as? String }
-                    ?: ""
+                preferredKeys.firstNotNullOfOrNull { key ->
+                    (raw[key] as? String)?.takeIf { it.isNotBlank() }
+                } ?: raw.values.firstNotNullOfOrNull { it as? String } ?: ""
             }
             else -> ""
         }
@@ -351,31 +477,19 @@ class FirebasePairingManager(private val context: Context) {
             if (dateKey.isEmpty()) return@forEach
             val fajr = daySnap.child("fajr").getValue(String::class.java)
                 ?: daySnap.child("subuh").getValue(String::class.java)
-                ?: daySnap.child("imsak").getValue(String::class.java)
-                ?: "-"
-            val syuruk = daySnap.child("syuruk").getValue(String::class.java)
-                ?: daySnap.child("syuruq").getValue(String::class.java)
-                ?: daySnap.child("sunrise").getValue(String::class.java)
-                ?: daySnap.child("terbit").getValue(String::class.java)
-                ?: "-"
+                ?: daySnap.child("imsak").getValue(String::class.java) ?: "-"
+            // Syuruk = Subuh + 1 jam 10 menit (70 menit)
+            val syuruk = addMinutesToTime(fajr, 70)
             val dzuhur = daySnap.child("dzuhur").getValue(String::class.java)
-                ?: daySnap.child("dhuhr").getValue(String::class.java)
-                ?: "-"
+                ?: daySnap.child("dhuhr").getValue(String::class.java) ?: "-"
             val ashar = daySnap.child("ashar").getValue(String::class.java)
-                ?: daySnap.child("asar").getValue(String::class.java)
-                ?: "-"
+                ?: daySnap.child("asar").getValue(String::class.java) ?: "-"
             val maghrib = daySnap.child("maghrib").getValue(String::class.java) ?: "-"
             val isya = daySnap.child("isya").getValue(String::class.java)
-                ?: daySnap.child("isha").getValue(String::class.java)
-                ?: "-"
+                ?: daySnap.child("isha").getValue(String::class.java) ?: "-"
             result[dateKey] = DailyPrayerSchedule(
-                date = dateKey,
-                fajr = fajr,
-                syuruk = syuruk,
-                dzuhur = dzuhur,
-                ashar = ashar,
-                maghrib = maghrib,
-                isya = isya
+                date = dateKey, fajr = fajr, syuruk = syuruk,
+                dzuhur = dzuhur, ashar = ashar, maghrib = maghrib, isya = isya
             )
         }
         return result
@@ -388,24 +502,14 @@ class FirebasePairingManager(private val context: Context) {
             val id = videoSnap.key?.trim().orEmpty()
             if (id.isEmpty()) return@forEach
             val title = videoSnap.child("title").getValue(String::class.java)
-                ?: videoSnap.child("name").getValue(String::class.java)
-                ?: "Video"
+                ?: videoSnap.child("name").getValue(String::class.java) ?: "Video"
             val url = videoSnap.child("url").getValue(String::class.java)
-                ?: videoSnap.child("videoUrl").getValue(String::class.java)
-                ?: ""
+                ?: videoSnap.child("videoUrl").getValue(String::class.java) ?: ""
             val order = videoSnap.child("order").getValue(Int::class.java)
                 ?: videoSnap.child("order").getValue(Long::class.java)?.toInt()
                 ?: videoSnap.child("index").getValue(Int::class.java)
-                ?: videoSnap.child("index").getValue(Long::class.java)?.toInt()
-                ?: 0
-            videos.add(
-                EducationVideo(
-                    id = id,
-                    title = title,
-                    url = url,
-                    order = order
-                )
-            )
+                ?: videoSnap.child("index").getValue(Long::class.java)?.toInt() ?: 0
+            videos.add(EducationVideo(id = id, title = title, url = url, order = order))
         }
         return videos.sortedWith(compareBy<EducationVideo> { it.order }.thenBy { it.title })
     }
