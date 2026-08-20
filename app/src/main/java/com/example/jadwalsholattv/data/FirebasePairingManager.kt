@@ -487,9 +487,28 @@ class FirebasePairingManager(private val context: Context) {
             val maghrib = daySnap.child("maghrib").getValue(String::class.java) ?: "-"
             val isya = daySnap.child("isya").getValue(String::class.java)
                 ?: daySnap.child("isha").getValue(String::class.java) ?: "-"
+
+            // Terapkan koreksi waktu sesuai tabel referensi (image):
+            // Subuh (fajr) +10, Syuruk +10, Dzuhur -1, Ashar 0, Maghrib -4, Isya 0
+            val offsets = mapOf(
+                "fajr" to 10,
+                "syuruk" to 10,
+                "dzuhur" to -1,
+                "ashar" to 0,
+                "maghrib" to -4,
+                "isya" to 0
+            )
+
+            val fajrCorr = addMinutesToTime(fajr, offsets["fajr"]!!)
+            val syurukCorr = addMinutesToTime(syuruk, offsets["syuruk"]!!)
+            val dzuhurCorr = addMinutesToTime(dzuhur, offsets["dzuhur"]!!)
+            val asharCorr = addMinutesToTime(ashar, offsets["ashar"]!!)
+            val maghribCorr = addMinutesToTime(maghrib, offsets["maghrib"]!!)
+            val isyaCorr = addMinutesToTime(isya, offsets["isya"]!!)
+
             result[dateKey] = DailyPrayerSchedule(
-                date = dateKey, fajr = fajr, syuruk = syuruk,
-                dzuhur = dzuhur, ashar = ashar, maghrib = maghrib, isya = isya
+                date = dateKey, fajr = fajrCorr, syuruk = syurukCorr,
+                dzuhur = dzuhurCorr, ashar = asharCorr, maghrib = maghribCorr, isya = isyaCorr
             )
         }
         return result
